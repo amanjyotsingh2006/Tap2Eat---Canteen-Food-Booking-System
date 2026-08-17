@@ -1,0 +1,26 @@
+{
+  "name": "tap2eat",
+  "version": "1.0.0",
+  "description": "Canteen food order system",
+  "keywords": [
+    "canteen"
+  ],
+  "license": "ISC",
+  "author": "Amanjyot",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "server": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "google-auth-library": "^11.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.7.4",
+    "nodemon": "^3.1.14"
+  }
+}
