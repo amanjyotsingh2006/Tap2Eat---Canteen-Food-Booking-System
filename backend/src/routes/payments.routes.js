@@ -1,13 +1,26 @@
-import express from "express"
-import { protectRoute } from "../middleware/auth.middleware.js"
-import { createPayment, getPayment, refundPayment, verifyPayment } from "../controllers/payments.controller.js"
+import express from "express";
 
-const router = express.Router()
+import { protectRoute } from "../middleware/auth.middleware.js";
+import { isAdmin } from "../middleware/admin.middleware.js";
 
-router.post("/create", protectRoute, createPayment)
-router.post("/verify", protectRoute, verifyPayment)
-router.get("/:orderId", protectRoute, getPayment)
-router.patch("/refund/:id", protectRoute, refundPayment)
+import {
+    createPayment,
+    getPayment,
+    refundPayment,
+    verifyPayment,
+    collectPayment
+} from "../controllers/payments.controller.js";
 
+const router = express.Router();
 
-export default router
+router.post("/create", protectRoute, createPayment);
+
+// Retained temporarily so old frontend calls receive a clear error.
+router.post("/verify", protectRoute, verifyPayment);
+
+router.get("/:orderId", protectRoute, getPayment);
+
+router.patch("/collect/:id", protectRoute, isAdmin, collectPayment);
+router.patch("/refund/:id", protectRoute, isAdmin, refundPayment);
+
+export default router;

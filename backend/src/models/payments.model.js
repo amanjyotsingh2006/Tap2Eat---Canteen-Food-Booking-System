@@ -6,41 +6,38 @@ const paymentSchema = new mongoose.Schema({
         ref: "User",
         required: true
     },
+
     order: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Order",
-        required: true
+        required: true,
+        unique: true
     },
+
     amount: {
         type: Number,
         required: true,
         min: 0
     },
+
     paymentMethod: {
         type: String,
-        enum: [
-            "COD",
-            "UPI",
-            "Card",
-            "NET_BANKING", 
-            "WALLET"
-        ],
+        enum: ["COD", "UPI", "Card", "NET_BANKING", "WALLET"],
         required: true
     },
+
     paymentStatus: {
         type: String,
-        enum: [
-            "Pending",
-            "Success",
-            "Failed",
-            "Refunded"
-        ],
+        enum: ["Pending", "Success", "Failed", "Refunded"],
         default: "Pending"
     },
+
     transactionId: {
         type: String,
         default: null
     }
-}, {timestamps: true})
+}, {
+    timestamps: true
+});
 
-export const Payment = mongoose.model("Payment", paymentSchema)
+export const Payment = mongoose.model("Payment", paymentSchema);

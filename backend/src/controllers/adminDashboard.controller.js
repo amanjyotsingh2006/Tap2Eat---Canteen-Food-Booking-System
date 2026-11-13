@@ -210,7 +210,7 @@ export const getTopCustomers = asyncHandler(async (req, res) => {
             $project: {
                 _id: 0,
                 userId: "$user._id",
-                fullName: "$user.name",
+                fullName: "$user.fullName",
                 email: "$user.email",
                 totalOrders: 1
             }

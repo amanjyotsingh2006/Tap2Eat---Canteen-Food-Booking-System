@@ -4,10 +4,10 @@ import ApiError from "../utils/ApiError.js";
 import ApiResponse from "../utils/ApiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
 
-export const createNotification = asyncHandler(async(req, res) => {
-    const {title, message, type="System"} = req.body
+export const createNotification = asyncHandler(async (req, res) => {
+    const { title, message, type = "System" } = req.body
 
-    if(!title || !message) {
+    if (!title || !message) {
         throw new ApiError(400, "All fields are required")
     }
 
@@ -27,11 +27,13 @@ export const createNotification = asyncHandler(async(req, res) => {
     )
 })
 
-export const getNotification = asyncHandler(async(req, res) => {
-    const notification = await Notification.find({user: req.user._id}).sort({createdAt: -1})
+export const getNotification = asyncHandler(async (req, res) => {
+    const notification = await Notification.find({ user: req.user._id }).sort({ createdAt: -1 })
 
-    if(!notification) {
-        throw new ApiError(404, "No notification found")
+    if (notification.length === 0) {
+        return res.status(200).json(
+            new ApiResponse(200, [], "No notifications found")
+        );
     }
 
     return res.status(200).json(
@@ -43,16 +45,16 @@ export const getNotification = asyncHandler(async(req, res) => {
     )
 })
 
-export const markNotificationAsRead = asyncHandler(async(req, res) => {
-    const {id} = req.params
+export const markNotificationAsRead = asyncHandler(async (req, res) => {
+    const { id } = req.params
 
-    if(!mongoose.Types.ObjectId.isValid(id)) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
         throw new ApiError(400, "Invalid Notification ID")
     }
 
     const notification = await Notification.findById(id)
 
-    if(!notification) {
+    if (!notification) {
         throw new ApiError(404, "No notification found")
     }
 
@@ -60,7 +62,7 @@ export const markNotificationAsRead = asyncHandler(async(req, res) => {
         throw new ApiError(403, "Unauthorized access");
     }
 
-    if(notification.isRead===true) {
+    if (notification.isRead === true) {
         throw new ApiError(400, "Notification is already marked as read")
     }
 
@@ -77,20 +79,20 @@ export const markNotificationAsRead = asyncHandler(async(req, res) => {
     )
 })
 
-export const deleteNotification = asyncHandler(async(req, res) => {
-    const {id} = req.params
+export const deleteNotification = asyncHandler(async (req, res) => {
+    const { id } = req.params
 
-    if(!mongoose.Types.ObjectId.isValid(id)) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
         throw new ApiError(400, "Invalid Notification ID")
     }
 
     const notification = await Notification.findById(id)
 
-    if(!notification) {
+    if (!notification) {
         throw new ApiError(404, "No notification found")
     }
 
-    if(notification.user.toString() !== req.user._id.toString()) {
+    if (notification.user.toString() !== req.user._id.toString()) {
         throw new ApiError(403, "Unauthorized access")
     }
 

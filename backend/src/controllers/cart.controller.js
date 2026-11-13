@@ -6,173 +6,180 @@ import ApiResponse from "../utils/ApiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
 
 export const addToCart = asyncHandler(async (req, res) => {
-    const { foodId, quantity } = req.body
+    const { foodId, quantity = 1 } = req.body;
 
-    if (!foodId) {
-        throw new ApiError(400, "Invalid Id")
+    if (!mongoose.Types.ObjectId.isValid(foodId)) {
+        throw new ApiError(400, "Invalid Food ID");
     }
 
-    const food = await Food.findById(foodId)
+    if (!Number.isInteger(quantity) || quantity < 1) {
+        throw new ApiError(400, "Quantity must be a positive integer");
+    }
+
+    const food = await Food.findById(foodId);
 
     if (!food) {
-        throw new ApiError(404, "Food not found")
+        throw new ApiError(404, "Food not found");
     }
 
-    if (!food.available) {
-        throw new ApiError(400, "Food is currently  unavailable")
+    if (food.available !== "Yes") {
+        throw new ApiError(400, "Food is currently unavailable");
     }
 
-    const cart = await Cart.findOne({ user: req.user._id })
+    let cart = await Cart.findOne({ user: req.user._id });
 
     if (!cart) {
-        const cart = await Cart.create({
+        cart = await Cart.create({
             user: req.user._id,
             items: [],
             totalPrice: 0
-        })
+        });
     }
 
-    const existingCart = await cart.items.find(
-        (items) => items.food.toString() === foodId
-    )
+    const existingItem = cart.items.find(
+        item => item.food.toString() === foodId
+    );
 
-    if (existingCart) {
-        existingCart.quantity += 1 || 1
-    }
-    else {
+    if (existingItem) {
+        existingItem.quantity += quantity;
+        existingItem.price = food.price;
+    } else {
         cart.items.push({
             food: food._id,
-            quantity: quantity || 1,
+            quantity,
             price: food.price
-        })
+        });
     }
 
     cart.totalPrice = cart.items.reduce(
         (total, item) => total + item.price * item.quantity,
         0
-    )
+    );
 
-    await cart.save()
+    await cart.save();
 
     return res.status(200).json(
-        new ApiResponse(
-            200,
-            cart,
-            "Items added to cart successfully"
-        )
-    )
-})
+        new ApiResponse(200, cart, "Item added to cart successfully")
+    );
+});
 
 export const getCart = asyncHandler(async (req, res) => {
-    const cart = await Cart.findOne({ user: req.user._id }).populate("items.food")
+    const cart = await Cart.findOne({ user: req.user._id })
+        .populate("items.food");
 
     if (!cart) {
-        throw new ApiError(400, "Cart is Empty")
+        return res.status(200).json(
+            new ApiResponse(200, {
+                items: [],
+                totalPrice: 0
+            }, "Cart is empty")
+        );
     }
 
     return res.status(200).json(
-        new ApiResponse(
-            200,
-            cart,
-            "Cart fetched Successfully"
-        )
-    )
-})
+        new ApiResponse(200, cart, "Cart fetched successfully")
+    );
+});
 
 export const updateCartItem = asyncHandler(async (req, res) => {
-    const { foodId } = req.params
-    const { quantity } = req.body
+    const { foodId } = req.params;
+    const { quantity } = req.body;
 
-    if (!quantity || quantity < 1) {
-        throw new ApiError(400, "Valid quantity is required")
+    if (!mongoose.Types.ObjectId.isValid(foodId)) {
+        throw new ApiError(400, "Invalid Food ID");
     }
 
-    const cart = await Cart.findOne({ user: req.user._id })
+    if (!Number.isInteger(quantity) || quantity < 1) {
+        throw new ApiError(400, "Quantity must be a positive integer");
+    }
+
+    const cart = await Cart.findOne({ user: req.user._id });
 
     if (!cart) {
-        throw new ApiError(400, "Cart not found")
-    }
-
-    const items = cart.items.find(
-        (item) => item.food.toString() === foodId
-    )
-
-    if (!items) {
-        throw new ApiError(400, "Food not found in cart")
-    }
-
-    items.quantity = quantity
-
-    cart.totalPrice = cart.items.reduce(
-        (total, item) => total + item.price * item.quantity,
-        0
-    )
-
-    await cart.save()
-
-    return res.status(200).json(
-        new ApiResponse(
-            200,
-            cart,
-            "Cart updated Successfully"
-        )
-    )
-})
-
-export const removeCartItem = asyncHandler(async(req, res) => {
-    const {foodId} = req.params
-
-    const cart = await Cart.findOne({user: req.user._id})
-
-    if(!cart) {
-        throw new ApiError(404, "Cart not found")
+        throw new ApiError(404, "Cart not found");
     }
 
     const item = cart.items.find(
-        (item) => item.food.toString() === foodId
-    )
+        item => item.food.toString() === foodId
+    );
 
-    if(!item) {
-        throw new ApiError(404, "Food not found in cart")
+    if (!item) {
+        throw new ApiError(404, "Food not found in cart");
     }
 
-    cart.items = cart.items.filter(
-        (item) => item.food.toString() != foodId
-    )
+    const food = await Food.findById(foodId);
+
+    if (!food || food.available !== "Yes") {
+        throw new ApiError(400, "Food is currently unavailable");
+    }
+
+    item.quantity = quantity;
+    item.price = food.price;
 
     cart.totalPrice = cart.items.reduce(
         (total, item) => total + item.price * item.quantity,
         0
-    )
+    );
 
-    await cart.save()
+    await cart.save();
 
     return res.status(200).json(
-        new ApiResponse(
-            200,
-            cart,
-            "Food removed from cart Successfully"
-        )
-    )
-})
+        new ApiResponse(200, cart, "Cart updated successfully")
+    );
+});
 
-export const clearCart = asyncHandler(async(req, res) => {
-    const cart = await Cart.findOne({user: req.user._id})
+export const removeCartItem = asyncHandler(async (req, res) => {
+    const { foodId } = req.params;
 
-    if(!cart) {
-        throw new ApiError(404, "Cart not found")
+    if (!mongoose.Types.ObjectId.isValid(foodId)) {
+        throw new ApiError(400, "Invalid Food ID");
     }
 
-    cart.items = []
-    cart.totalPrice = 0
+    const cart = await Cart.findOne({ user: req.user._id });
 
-    await cart.save()
+    if (!cart) {
+        throw new ApiError(404, "Cart not found");
+    }
+
+    const itemExists = cart.items.some(
+        item => item.food.toString() === foodId
+    );
+
+    if (!itemExists) {
+        throw new ApiError(404, "Food not found in cart");
+    }
+
+    cart.items = cart.items.filter(
+        item => item.food.toString() !== foodId
+    );
+
+    cart.totalPrice = cart.items.reduce(
+        (total, item) => total + item.price * item.quantity,
+        0
+    );
+
+    await cart.save();
 
     return res.status(200).json(
-        new ApiResponse(
-            200,
-            cart,
-            "Cart cleared Successfully"
-        )
-    )
-})
+        new ApiResponse(200, cart, "Food removed from cart successfully")
+    );
+});
+
+export const clearCart = asyncHandler(async (req, res) => {
+    const cart = await Cart.findOne({ user: req.user._id });
+
+    if (!cart) {
+        return res.status(200).json(
+            new ApiResponse(200, {}, "Cart is already empty")
+        );
+    }
+
+    cart.items = [];
+    cart.totalPrice = 0;
+
+    await cart.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, cart, "Cart cleared successfully")
+    );
+});

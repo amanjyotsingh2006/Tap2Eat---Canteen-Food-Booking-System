@@ -5,87 +5,119 @@ import ApiError from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
 
 import bcrypt from "bcrypt"
+import jwt from "jsonwebtoken";
 import { generateAccessToken, generateRefreshToken } from "../tokens/generateToken.js";
 
 import googleClient from "../config/google.js";
 
+
 export const register = asyncHandler(async (req, res) => {
-    const { email, fullName, password, confirmPassword, phone, role } = req.body
+    const { email, fullName, password, confirmPassword, phone } = req.body
 
-    if (!(email && fullName && password && confirmPassword && phone)) {
-        throw new ApiError(400, "Missing fields are required")
+    if (!email || !fullName || !password || !confirmPassword || !phone) {
+        throw new ApiError(400, "All fields are required")
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-        throw new ApiError(400, "Invalid Email")
+    const normalizedEmail = email.trim().toLowerCase()
+    const trimmedName = fullName.trim()
+
+    // Validate email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+    if (!emailRegex.test(normalizedEmail)) {
+        throw new ApiError(400, "Invalid email")
     }
 
-    const existingUser = await User.findOne({ email });
+    // Validate full name
+    if (!trimmedName) {
+        throw new ApiError(400, "Full name is required")
+    }
+
+    // Validate phone
+    if (!/^\d{10}$/.test(phone)) {
+        throw new ApiError(400, "Phone must be exactly 10 digits")
+    }
+
+    // Validate password
+    if (password.length < 6) {
+        throw new ApiError(400, "Password must be at least 6 characters")
+    }
+
+    if (password !== confirmPassword) {
+        throw new ApiError(400, "Passwords do not match")
+    }
+
+    // Check existing user
+    const existingUser = await User.findOne({
+        email: normalizedEmail
+    })
 
     if (existingUser) {
-        throw new ApiError(400, "User already exist")
-    }
-
-    if (password.length < 6) {
-        throw new ApiError(400, "Password must atleast 6 characters")
-    }
-
-    if (password != confirmPassword) {
-        throw new ApiError(400, "Password do not match")
+        throw new ApiError(409, "User already exists")
     }
 
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    if (phone.length != 10) {
-        throw new ApiError(400, "Phone must must be 10 characters")
-    }
-
-    const avatar = `https://ui-avatars.com/api/?name=${fullName}`
+    const avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(trimmedName)}`
 
     const user = await User.create({
-        fullName,
-        email,
+        fullName: trimmedName,
+        email: normalizedEmail,
         phone,
         password: hashedPassword,
         profilePic: avatar,
-        role
+        role: "user"
     })
 
-    return res.status(200).json(
-        new ApiResponse(201, user, "User registered successfully")
+    const registeredUser = await User.findById(user._id)
+        .select("-password -refreshToken")
+
+    return res.status(201).json(
+        new ApiResponse(
+            201,
+            registeredUser,
+            "User registered successfully"
+        )
     )
 })
+
+
 
 export const login = asyncHandler(async (req, res) => {
     const { email, password } = req.body
 
-    if (!(email && password)) {
-        throw new ApiError(400, "Missing Fields required")
+    if (!email || !password) {
+        throw new ApiError(400, "Email and password are required")
     }
 
-    const user = await User.findOne({ email })
+    const user = await User.findOne({
+        email: email.trim().toLowerCase()
+    })
 
-    if (!user) {
-        throw new ApiError(400, "User does not exist")
+    if (!user || !user.password) {
+        throw new ApiError(401, "Invalid email or password")
     }
 
-    const isPasswordCorrect = await bcrypt.compare(password, user.password)
+    const isPasswordCorrect = await bcrypt.compare(
+        password,
+        user.password
+    )
 
     if (!isPasswordCorrect) {
-        throw new ApiError(400, "Invalid email or password")
+        throw new ApiError(401, "Invalid email or password")
     }
 
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
+    const accessToken = generateAccessToken(user)
+    const refreshToken = generateRefreshToken(user)
 
-    user.refreshToken = refreshToken;
+    user.refreshToken = refreshToken
 
     await user.save({
         validateBeforeSave: false
     })
 
-    const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
+    const loggedInUser = await User.findById(user._id)
+        .select("-password -refreshToken")
 
     return res.status(200).json(
         new ApiResponse(
@@ -98,26 +130,25 @@ export const login = asyncHandler(async (req, res) => {
             "Login successful"
         )
     )
-
 })
 
+
 export const logout = asyncHandler(async (req, res) => {
+
     await User.findByIdAndUpdate(
-        req.user_id,
+        req.user._id,
         {
             $unset: {
                 refreshToken: 1
             }
-        },
-        {
-            new: true
         }
-    );
+    )
 
     const options = {
         httpOnly: true,
-        secure: true
-    };
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict"
+    }
 
     return res
         .status(200)
@@ -127,51 +158,82 @@ export const logout = asyncHandler(async (req, res) => {
             new ApiResponse(
                 200,
                 {},
-                "User Logged Out Successfully"
+                "User logged out successfully"
             )
         )
 })
+
 
 export const googleLogin = asyncHandler(async (req, res) => {
     const { credential } = req.body
 
     if (!credential) {
-        throw new ApiError(400, "Google Credential Required")
+        throw new ApiError(400, "Google credential is required")
     }
 
+    // Verify Google token
     const ticket = await googleClient.verifyIdToken({
         idToken: credential,
         audience: process.env.GOOGLE_CLIENT_ID
     })
 
-    const payload = ticket.getPayload();
+    const payload = ticket.getPayload()
 
     const {
         email,
         name,
         picture,
-        sub
-    } = payload;
+        sub,
+        email_verified
+    } = payload
 
-    const user = await User.findOne({email})
+    if (!email || !sub || !email_verified) {
+        throw new ApiError(401, "Invalid Google account")
+    }
 
-    if(!user) {
+    const normalizedEmail = email.toLowerCase()
+
+    // Find existing user
+    let user = await User.findOne({
+        email: normalizedEmail
+    })
+
+    // Create new user if not found
+    if (!user) {
         user = await User.create({
             fullName: name,
-            email,
+            email: normalizedEmail,
             profilePic: picture,
-            googleId: sub
+            googleId: sub,
+            role: "user"
+        })
+    } else {
+        // Prevent linking a different Google account
+        if (user.googleId && user.googleId !== sub) {
+            throw new ApiError(401, "Google account mismatch")
+        }
+
+        if (!user.googleId) {
+            user.googleId = sub
+        }
+
+        await user.save({
+            validateBeforeSave: false
         })
     }
 
+    // Generate tokens
     const accessToken = generateAccessToken(user)
     const refreshToken = generateRefreshToken(user)
 
     user.refreshToken = refreshToken
 
-    await user.save({validateBeforeSave: false})
+    await user.save({
+        validateBeforeSave: false
+    })
 
-    const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
+    const loggedInUser = await User.findById(user._id)
+        .select("-password -refreshToken")
 
     return res.status(200).json(
         new ApiResponse(
@@ -181,7 +243,38 @@ export const googleLogin = asyncHandler(async (req, res) => {
                 accessToken,
                 refreshToken
             },
-            "Google Login Successful"
+            "Google login successful"
         )
     )
 })
+
+export const refreshAccessToken = asyncHandler(async (req, res) => {
+    const refreshToken =
+        req.body.refreshToken ||
+        req.cookies?.refreshToken;
+
+    if (!refreshToken) {
+        throw new ApiError(401, "Refresh token is required");
+    }
+
+    const decodedToken = jwt.verify(
+        refreshToken,
+        process.env.REFRESH_TOKEN_SECRET
+    );
+
+    const user = await User.findById(decodedToken.id);
+
+    if (!user || user.refreshToken !== refreshToken) {
+        throw new ApiError(401, "Invalid refresh token");
+    }
+
+    const accessToken = generateAccessToken(user);
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            { accessToken },
+            "Access token refreshed successfully"
+        )
+    );
+});
