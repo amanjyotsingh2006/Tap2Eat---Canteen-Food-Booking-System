@@ -513,7 +513,13 @@ const FilterBar = ({ search, setSearch, diet, setDiet }) => (
   </div>
 )
 
-const DishCard = ({ dish, onAdd }) => (
+const DishCard = ({
+  dish,
+  onAdd,
+  isFavourite,
+  onToggleFavourite,
+  favouriteLoading
+}) => (
   <article className="flex flex-col overflow-hidden rounded-2xl border border-orange-100 bg-white p-2.5 shadow-sm transition hover:shadow-md lg:p-0">
     {/* Image */}
     <div className="relative h-28 overflow-hidden rounded-xl bg-orange-50 sm:h-36 lg:h-40 lg:rounded-none">
@@ -543,8 +549,23 @@ const DishCard = ({ dish, onAdd }) => (
       )}
 
       {/* Wishlist (desktop) */}
-      <button className="absolute right-2 top-2 hidden h-8 w-8 items-center justify-center rounded-full bg-white/95 text-gray-600 hover:text-red-500 lg:flex">
-        <Heart size={15} />
+      <button
+        type="button"
+        onClick={(event) => onToggleFavourite(event, dish)}
+        disabled={favouriteLoading}
+        aria-label={
+          isFavourite ? 'Remove from favourites' : 'Add to favourites'
+        }
+        className="absolute right-2 top-2 hidden h-8 w-8 items-center justify-center rounded-full bg-white/95 text-gray-600 transition hover:text-red-500 disabled:opacity-50 lg:flex"
+      >
+        <Heart
+          size={15}
+          className={
+            isFavourite
+              ? 'fill-red-500 text-red-500'
+              : 'text-gray-600'
+          }
+        />
       </button>
 
       {/* Ready in (mobile) */}
@@ -605,7 +626,13 @@ const DishCard = ({ dish, onAdd }) => (
   </article>
 )
 
-const PopularSection = ({ items, onAdd }) => (
+const PopularSection = ({
+  items,
+  onAdd,
+  favouriteIds,
+  onToggleFavourite,
+  favouriteLoadingId
+}) => (
   <section className="mt-7">
     <div className="mb-4 flex items-end justify-between">
       <div>
@@ -637,7 +664,13 @@ const PopularSection = ({ items, onAdd }) => (
             key={d.id}
             to={`/food-detail/${d.id}`}
           >
-            <DishCard dish={d} onAdd={onAdd} />
+            <DishCard
+              dish={d}
+              onAdd={onAdd}
+              isFavourite={favouriteIds.includes(String(d.id))}
+              onToggleFavourite={onToggleFavourite}
+              favouriteLoading={favouriteLoadingId === String(d.id)}
+            />
           </Link>
         ))}
       </div>
@@ -786,6 +819,8 @@ const HomePage = () => {
   ])
 
   const [dishes, setDishes] = useState([])
+  const [favouriteIds, setFavouriteIds] = useState([])
+  const [favouriteLoadingId, setFavouriteLoadingId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
 
@@ -795,11 +830,12 @@ const HomePage = () => {
         setLoading(true)
         setErrorMessage('')
 
-        const [profileResponse, categoryResponse, foodResponse] =
+        const [profileResponse, categoryResponse, foodResponse, favouriteResponse] =
           await Promise.all([
             api.get('/profile/profile'),
             api.get('/categories'),
-            api.get('/foods')
+            api.get('/foods'),
+            api.get('/favourites')
           ])
 
         // Actual logged-in user
@@ -844,6 +880,14 @@ const HomePage = () => {
 
         setDishes(formattedDishes)
 
+        const favouriteData = favouriteResponse.data?.data || []
+
+        setFavouriteIds(
+          favouriteData.map((item) =>
+            String(item.food?._id || item.food)
+          )
+        )
+
       } catch (error) {
         console.error(
           'Dashboard loading error:',
@@ -873,6 +917,47 @@ const HomePage = () => {
     // Existing local placeholder only.
     // Backend cart integration will be done separately.
     setCart((prev) => [...prev, dish])
+  }
+
+  const handleToggleFavourite = async (event, dish) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const foodId = String(dish.id)
+
+    if (favouriteLoadingId === foodId) return
+
+    const alreadyFavourite = favouriteIds.includes(foodId)
+
+    try {
+      setFavouriteLoadingId(foodId)
+
+      if (alreadyFavourite) {
+        await api.delete(`/favourites/delete/${foodId}`)
+
+        setFavouriteIds((prev) =>
+          prev.filter((id) => id !== foodId)
+        )
+      } else {
+        await api.post(`/favourites/add/${foodId}`)
+
+        setFavouriteIds((prev) =>
+          prev.includes(foodId) ? prev : [...prev, foodId]
+        )
+      }
+    } catch (error) {
+      console.error(
+        'Favourite update failed:',
+        error.response?.data || error
+      )
+
+      alert(
+        error.response?.data?.message ||
+        'Unable to update favourites. Please try again.'
+      )
+    } finally {
+      setFavouriteLoadingId(null)
+    }
   }
 
   const cartCount = cart.length
@@ -953,6 +1038,9 @@ const HomePage = () => {
           <PopularSection
             items={filtered}
             onAdd={handleAdd}
+            favouriteIds={favouriteIds}
+            onToggleFavourite={handleToggleFavourite}
+            favouriteLoadingId={favouriteLoadingId}
           />
         )}
 

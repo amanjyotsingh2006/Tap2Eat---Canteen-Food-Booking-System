@@ -131,6 +131,7 @@ const FoodDetailPage = () => {
   const [selectedExtras, setSelectedExtras] = useState([])
   const [qty, setQty] = useState(1)
   const [liked, setLiked] = useState(false)
+  const [favouriteLoading, setFavouriteLoading] = useState(false)
 
   // Fetch food details
   useEffect(() => {
@@ -163,6 +164,31 @@ const FoodDetailPage = () => {
 
     if (id) {
       fetchFoodDetails()
+    }
+  }, [id])
+
+  // Fetch favourite status for the current food
+  useEffect(() => {
+    const fetchFavouriteStatus = async () => {
+      try {
+        const response = await api.get('/favourites')
+        const favourites = response.data?.data ?? []
+
+        const isSaved = Array.isArray(favourites) && favourites.some(
+          (item) => String(item.food?._id || item.food) === String(id)
+        )
+
+        setLiked(isSaved)
+      } catch (err) {
+        console.error(
+          'Favourite status fetching failed:',
+          err.response?.data?.message || err.message
+        )
+      }
+    }
+
+    if (id) {
+      fetchFavouriteStatus()
     }
   }, [id])
 
@@ -280,6 +306,32 @@ const FoodDetailPage = () => {
     )
   }
 
+  // Add or remove food from favourites
+  const handleToggleFavourite = async () => {
+    if (!food?._id || favouriteLoading) return
+
+    try {
+      setFavouriteLoading(true)
+
+      if (liked) {
+        await api.delete(`/favourites/delete/${food._id}`)
+        setLiked(false)
+      } else {
+        await api.post(`/favourites/add/${food._id}`)
+        setLiked(true)
+      }
+    } catch (err) {
+      console.error('Favourite update failed:', err)
+
+      alert(
+        err.response?.data?.message ||
+        'Unable to update favourites. Please try again.'
+      )
+    } finally {
+      setFavouriteLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#fff7f4] pb-24 text-[#2a1a14] lg:pb-0">
       {/* ======================= DESKTOP NAVBAR ======================= */}
@@ -306,7 +358,8 @@ const FoodDetailPage = () => {
 
           <button
             type="button"
-            onClick={() => setLiked((v) => !v)}
+            onClick={handleToggleFavourite}
+            disabled={favouriteLoading}
             className="flex h-11 w-11 items-center justify-center rounded-full bg-white/90 shadow"
           >
             <Heart
@@ -708,11 +761,15 @@ const FoodDetailPage = () => {
               </button>
               <button
                 type="button"
-                aria-label="Favourite"
-                onClick={() => setLiked((v) => !v)}
-                className="flex h-16 w-14 items-center justify-center rounded-xl border border-[#f0d5c8] bg-white"
+                aria-label={liked ? 'Remove from favourites' : 'Add to favourites'}
+                onClick={handleToggleFavourite}
+                disabled={favouriteLoading}
+                className="flex h-16 w-14 items-center justify-center rounded-xl border border-[#f0d5c8] bg-white disabled:opacity-50"
               >
-                <Heart size={22} className={liked ? 'fill-[#a63a0f] text-[#a63a0f]' : 'text-[#4a2c20]'} />
+                <Heart
+                  size={22}
+                  className={liked ? 'fill-[#a63a0f] text-[#a63a0f]' : 'text-[#4a2c20]'}
+                />
               </button>
               <button
                 type="button"

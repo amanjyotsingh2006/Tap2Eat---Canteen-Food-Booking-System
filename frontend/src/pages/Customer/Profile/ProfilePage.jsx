@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import api from "../../../services/api.js";
 import {
   Camera, MapPin, Plus, ChevronRight, ChevronDown, User, Lock, Bell, CreditCard, UtensilsCrossed,
   Receipt, HelpCircle, LogOut, Pencil, Shield, Smartphone, Mail, Phone, Building2, Settings,
@@ -61,13 +63,35 @@ function Avatar({ photo, name, size }) {
 }
 
 /* ---------- page ---------- */
-const ProfileSettings =() => {
-  const [profile, setProfile] = useState({ name: "Arjun Kumar", email: "arjun.kumar@campus.university.edu", phone: "+91 98765 43210", hostel: "North Wing Hostel, Room 402", counter: COUNTERS[0] });
-  const [draft, setDraft] = useState(profile);
+const ProfileSettings = () => {
+  const [profile, setProfile] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    hostel: "",
+    counter: COUNTERS[0],
+  });
+
+  const [draft, setDraft] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    hostel: "",
+    counter: COUNTERS[0],
+  });
+
   const [errors, setErrors] = useState({});
   const [editing, setEditing] = useState(false);
-  const [photo, setPhoto] = useState(null);
+
+  const [photo, setPhoto] = useState("");
   const [balance, setBalance] = useState(1450);
+
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const navigate = useNavigate();
+
   const [prefs, setPrefs] = useState({ live: true, offers: true, specials: false, receipts: true });
   const [twoFA, setTwoFA] = useState(true);
   const [pwdAgo, setPwdAgo] = useState("4 months ago");
@@ -75,27 +99,132 @@ const ProfileSettings =() => {
   const [modal, setModal] = useState(null);
   const [nav, setNav] = useState("personal");
   const [toast, setToast] = useState("");
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef();
   const tt = useRef();
 
   const say = (m) => { setToast(m); clearTimeout(tt.current); tt.current = setTimeout(() => setToast(""), 2200); };
   useEffect(() => () => clearTimeout(tt.current), []);
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        setProfileLoading(true);
+
+        const response = await api.get("/profile/profile");
+
+        const userData = response.data?.data;
+
+        if (!userData) {
+          throw new Error("Profile data not received");
+        }
+
+        const formattedProfile = {
+          name: userData.fullName || "",
+          email: userData.email || "",
+          phone: userData.phone || "",
+          hostel: "",
+          counter: COUNTERS[0],
+        };
+
+        setProfile(formattedProfile);
+        setDraft(formattedProfile);
+
+        setPhoto(userData.profilePic || "");
+
+        localStorage.setItem("user", JSON.stringify(userData));
+
+      } catch (error) {
+        console.error(
+          "Profile fetching failed:",
+          error.response?.data || error
+        );
+
+        say(
+          error.response?.data?.message ||
+          "Unable to load your profile."
+        );
+
+        if (error.response?.status === 401) {
+          localStorage.removeItem("accessToken");
+          localStorage.removeItem("refreshToken");
+          localStorage.removeItem("user");
+
+          navigate("/login", { replace: true });
+        }
+
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+
+    fetchProfile();
+  }, [navigate]);
+
   const togglePref = (k) => { setPrefs((p) => ({ ...p, [k]: !p[k] })); };
 
   /* edit profile */
   const startEdit = () => { setDraft(profile); setErrors({}); setEditing(true); document.getElementById("personal")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
   const cancelEdit = () => { setEditing(false); setErrors({}); };
-  const saveEdit = () => {
+  const saveEdit = async () => {
     const e = {};
-    if (draft.name.trim().length < 2) e.name = "Enter your full name.";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email)) e.email = "Enter a valid email address.";
-    if (draft.phone.replace(/\D/g, "").length < 10) e.phone = "Enter a 10-digit phone number.";
-    if (draft.hostel.trim().length < 3) e.hostel = "Enter your hostel and room.";
+
+    const normalizedPhone = draft.phone.replace(/\D/g, "");
+
+    if (draft.name.trim().length < 2) {
+      e.name = "Enter your full name.";
+    }
+
+    if (!/^\d{10}$/.test(normalizedPhone)) {
+      e.phone = "Enter a valid 10-digit phone number.";
+    }
+
     setErrors(e);
-    if (Object.keys(e).length) return say("Please fix the highlighted fields");
-    setProfile({ ...draft, name: draft.name.trim() });
-    setEditing(false);
-    say("Profile updated");
+
+    if (Object.keys(e).length) return;
+
+    try {
+      setSavingProfile(true);
+
+      const response = await api.patch("/profile/profile", {
+        fullName: draft.name.trim(),
+        phone: normalizedPhone,
+      });
+
+      const updatedUser = response.data?.data;
+
+      const updatedProfile = {
+        ...profile,
+        name: updatedUser?.fullName || draft.name.trim(),
+        email: updatedUser?.email || profile.email,
+        phone: updatedUser?.phone || normalizedPhone,
+      };
+
+      setProfile(updatedProfile);
+      setDraft(updatedProfile);
+
+      if (updatedUser) {
+        localStorage.setItem("user", JSON.stringify(updatedUser));
+      }
+
+      setEditing(false);
+      setErrors({});
+
+      say(response.data?.message || "Profile updated successfully.");
+
+    } catch (error) {
+      console.error(
+        "Profile update failed:",
+        error.response?.data || error
+      );
+
+      say(
+        error.response?.data?.message ||
+        "Unable to update profile."
+      );
+
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   const onPhoto = (e) => {
@@ -105,6 +234,29 @@ const ProfileSettings =() => {
     if (photo) URL.revokeObjectURL(photo);
     setPhoto(URL.createObjectURL(f));
     say("Profile photo updated");
+  };
+
+  const handleLogout = async () => {
+    try {
+      setLoggingOut(true);
+
+      await api.post("/users/logout");
+
+    } catch (error) {
+      console.error(
+        "Logout API error:",
+        error.response?.data || error
+      );
+
+    } finally {
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      localStorage.removeItem("user");
+
+      setModal(null);
+
+      navigate("/login", { replace: true });
+    }
   };
 
   const goSection = (id) => { setNav(id); document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }); };
@@ -137,7 +289,11 @@ const ProfileSettings =() => {
           {errors[k] && <p role="alert" className="text-xs text-red-700 mt-1">{errors[k]}</p>}
         </>
       ) : (
-        <p className="mt-1 font-medium break-words">{readOnly || profile[k]}</p>
+        <p className="mt-1 font-medium break-words">
+          {typeof readOnly === "string"
+            ? readOnly
+            : profile[k] || "Not provided"}
+        </p>
       )}
     </div>
   );
@@ -186,8 +342,14 @@ const ProfileSettings =() => {
             <section className="bg-white border border-orange-100 rounded-2xl p-4 lg:p-6">
               <div className="flex lg:flex-col items-center gap-4 lg:gap-0 lg:text-center">
                 <div className="relative shrink-0">
-                  <Avatar photo={photo} name={profile.name} size="w-20 h-20 lg:w-28 lg:h-28" />
-                  <button onClick={() => fileRef.current.click()} aria-label="Change photo" className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-orange-800 text-white border-2 border-white grid place-items-center"><Camera size={14} /></button>
+                  <Avatar
+                    photo={photo}
+                    name={profile.name || "User"}
+                    size="w-20 h-20 lg:w-28 lg:h-28"
+                  />
+                  <button onClick={() =>
+                    say("Profile photo upload is not supported by the current backend.")
+                  } aria-label="Change photo" className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-orange-800 text-white border-2 border-white grid place-items-center"><Camera size={14} /></button>
                 </div>
                 <div className="flex-1 lg:mt-3 min-w-0">
                   <h2 className="text-xl lg:text-2xl font-bold truncate">{profile.name}</h2>
@@ -220,7 +382,7 @@ const ProfileSettings =() => {
                 </button>
               ))}
               <div className="border-t border-orange-100 mt-2 pt-2">
-                <button onClick={() => setModal("logout")} className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm text-orange-800 font-medium hover:bg-orange-50"><LogOut size={17} />Log Out</button>
+                <button onClick={handleLogout} disabled={loggingOut} className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm text-orange-800 font-medium hover:bg-orange-50"><LogOut size={17} />Log Out</button>
               </div>
             </nav>
           </aside>
@@ -245,21 +407,52 @@ const ProfileSettings =() => {
 
               <div className="lg:grid lg:grid-cols-2 lg:gap-4">
                 <Field k="name" label="Full Name" icon={User} />
-                <Field k="email" label="Email Address / Campus Email" icon={Mail} badge="✓ Verified Student" type="email" />
+                <Field
+                  k="email"
+                  label="Email Address"
+                  icon={Mail}
+                  badge="Registered Email"
+                  type="email"
+                  readOnly
+                />
                 <Field k="phone" label="Phone Number / Contact Number" icon={Phone} badge="SMS & WhatsApp" type="tel" />
-                <Field k="id" label="Student / Employee ID" readOnly="CS-2022-84" desktopOnly />
-                <Field k="dept" label="Department & Year" readOnly="Computer Science & Engineering • 3rd Year" desktopOnly />
+                <Field
+                  k="id"
+                  label="Student / Employee ID"
+                  readOnly="Not available"
+                  desktopOnly
+                />
+
+                <Field
+                  k="dept"
+                  label="Department & Year"
+                  readOnly="Not provided"
+                  desktopOnly
+                />
                 <div className="hidden lg:block rounded-xl border border-orange-100 bg-orange-50/60 p-4">
                   <p className="text-xs tracking-wide uppercase text-stone-600">Preferred Delivery / Counter Bay</p>
                   <button onClick={() => setModal("delivery")} className="mt-1 font-medium text-orange-800 flex items-center gap-2"><Store size={15} />{profile.counter}</button>
                 </div>
-                <Field k="hostel" label="Campus Hostel / Hall" icon={Building2} mobileOnly />
+                <Field
+                  k="hostel"
+                  label="Campus Hostel / Hall"
+                  icon={Building2}
+                  readOnly="Not available"
+                  mobileOnly
+                />
               </div>
 
               {editing && (
                 <div className="flex gap-3 mt-4 justify-end">
                   <button onClick={cancelEdit} className="border border-stone-300 rounded-lg px-5 py-2 text-sm">Cancel</button>
-                  <button onClick={saveEdit} className="bg-orange-800 hover:bg-orange-900 text-white rounded-lg px-5 py-2 text-sm font-semibold flex items-center gap-2"><Check size={14} />Save Changes</button>
+                  <button
+                    onClick={saveEdit}
+                    disabled={profileLoading || savingProfile}
+                    className="bg-orange-800 hover:bg-orange-900 disabled:opacity-50 text-white rounded-lg px-5 py-2 text-sm font-semibold flex items-center gap-2"
+                  >
+                    <Check size={14} />
+                    {savingProfile ? "Saving..." : "Save Changes"}
+                  </button>
                 </div>
               )}
             </section>
@@ -320,7 +513,7 @@ const ProfileSettings =() => {
               ))}
             </section>
 
-            <button onClick={() => setModal("logout")} className="lg:hidden w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 text-orange-800 font-semibold py-3.5"><LogOut size={18} />Log Out of Campus Account</button>
+            <button onClick={handleLogout} disabled={loggingOut} className="lg:hidden w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 text-orange-800 font-semibold py-3.5"><LogOut size={18} />Log Out of Campus Account</button>
             <p className="lg:hidden text-center text-xs text-stone-500">Tap2Eat Campus v2.4.12 • Secure Student Session</p>
           </div>
         </div>
@@ -435,14 +628,56 @@ function Password({ onClose, onDone }) {
   const [cur, setCur] = useState(""); const [nw, setNw] = useState(""); const [cf, setCf] = useState("");
   const [show, setShow] = useState(false); const [err, setErr] = useState("");
   const s = useMemo(() => strength(nw), [nw]);
-  const submit = () => {
-    if (!cur) return setErr("Enter your current password.");
-    if (nw.length < 8) return setErr("New password must be at least 8 characters.");
-    if (s < 3) return setErr("Add upper & lower case letters and a number.");
-    if (nw === cur) return setErr("New password must differ from the current one.");
-    if (nw !== cf) return setErr("Passwords don't match.");
-    onDone();
+
+  const submit = async () => {
+    setErr("");
+
+    if (!cur) {
+      return setErr("Enter your current password.");
+    }
+
+    if (nw.length < 8) {
+      return setErr("New password must be at least 8 characters.");
+    }
+
+    if (s < 3) {
+      return setErr("Add upper & lower case letters and a number.");
+    }
+
+    if (nw === cur) {
+      return setErr("New password must differ from the current one.");
+    }
+
+    if (nw !== cf) {
+      return setErr("Passwords don't match.");
+    }
+
+    try {
+      setSaving(true);
+
+      const response = await api.patch("/profile/change-password", {
+        oldPassword: cur,
+        newPassword: nw,
+      });
+
+      onDone();
+
+    } catch (error) {
+      console.error(
+        "Password update failed:",
+        error.response?.data || error
+      );
+
+      setErr(
+        error.response?.data?.message ||
+        "Unable to update password."
+      );
+
+    } finally {
+      setSaving(false);
+    }
   };
+
   const inp = "w-full border border-orange-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-orange-500";
   return (
     <Modal title="Update Password" onClose={onClose}>
@@ -457,7 +692,13 @@ function Password({ onClose, onDone }) {
         <input type={show ? "text" : "password"} value={cf} onChange={(e) => { setCf(e.target.value); setErr(""); }} placeholder="Confirm new password" className={inp} autoComplete="new-password" />
       </div>
       {err && <p role="alert" className="text-xs text-red-700 mt-3">{err}</p>}
-      <button onClick={submit} className="w-full mt-4 bg-orange-800 text-white rounded-lg py-3 font-semibold">Update Password</button>
+      <button
+        onClick={submit}
+        disabled={saving}
+        className="w-full mt-4 bg-orange-800 disabled:opacity-50 text-white rounded-lg py-3 font-semibold"
+      >
+        {saving ? "Updating..." : "Update Password"}
+      </button>
     </Modal>
   );
 }

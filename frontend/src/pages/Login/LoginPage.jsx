@@ -62,14 +62,15 @@ const LoginPage = () => {
       setLoading(true)
 
       const response = await api.post('/users/login', { email, password })
-      const { accessToken, user } = response.data.data
+      const { accessToken, refreshToken, user } = response.data.data
 
-      if (!accessToken || !user) {
-        throw new Error('Invalid login response from server')
+      if (!accessToken || !refreshToken || !user) {
+        throw new Error("Invalid login response from server")
       }
 
-      localStorage.setItem('accessToken', accessToken)
-      localStorage.setItem('user', JSON.stringify(user))
+      localStorage.setItem("accessToken", accessToken)
+      localStorage.setItem("refreshToken", refreshToken)
+      localStorage.setItem("user", JSON.stringify(user))
 
       setSuccessMessage('Login successful! Redirecting...')
       navigate('/dashboard', { replace: true })
@@ -178,8 +179,8 @@ const LoginPage = () => {
                 <span
                   key={initials}
                   className={`flex h-10 w-10 items-center justify-center rounded-full border-2 border-white text-[11px] font-bold ${i === 3
-                      ? 'bg-[#f1e4de] text-[#5c4036]'
-                      : 'bg-[#ffd9c7] text-orange-700'
+                    ? 'bg-[#f1e4de] text-[#5c4036]'
+                    : 'bg-[#ffd9c7] text-orange-700'
                     }`}
                 >
                   {initials}

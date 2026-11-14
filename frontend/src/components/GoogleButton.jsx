@@ -47,21 +47,16 @@ const GoogleButton = () => {
             });
 
             // Adjust these paths to match your backend response.
-            const { accessToken, refreshToken, user } = response.data.data || response.data;
+            const { accessToken, refreshToken, user } =
+                response.data.data || response.data;
 
-            if (!accessToken) {
-                throw new Error("Authentication token was not received from the server.");
+            if (!accessToken || !refreshToken || !user) {
+                throw new Error("Invalid authentication response from server.");
             }
 
             localStorage.setItem("accessToken", accessToken);
-
-            if (refreshToken) {
-                localStorage.setItem("refreshToken", refreshToken);
-            }
-
-            if (user) {
-                localStorage.setItem("user", JSON.stringify(user));
-            }
+            localStorage.setItem("refreshToken", refreshToken);
+            localStorage.setItem("user", JSON.stringify(user));
 
             navigate("/dashboard", { replace: true });
         } catch (error) {
